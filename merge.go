@@ -31,7 +31,7 @@ type ExclusionRegion struct {
 // FindExclusionRegionsFromAnalysis 从分析结果中查找排除区域
 // diffThreshold: 差异值超过此阈值的帧被视为排除候选
 // minDurationSeconds: 最小连续时长（默认 20 秒）
-func FindExclusionRegionsFromAnalysis(result *AnalysisResult, diffThreshold int32, minDurationSeconds float64) ([]ExclusionRegion, error) {
+func FindExclusionRegionsFromAnalysis(result *AnalysisResult, diffThreshold uint32, minDurationSeconds float64) ([]ExclusionRegion, error) {
 	if result == nil {
 		return nil, fmt.Errorf("分析结果为空")
 	}
@@ -261,7 +261,7 @@ func ApplyExclusionToTimeline(timeline *Timeline, exclusions []ExclusionRegion) 
 func MergeExclusionsAndExport(
 	analysisResult *AnalysisResult,
 	timeline *Timeline,
-	diffThreshold int32,
+	diffThreshold uint32,
 	minDurationSeconds float64,
 	baseFilename string,
 ) (string, error) {

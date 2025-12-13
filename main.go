@@ -7,10 +7,10 @@ import (
 	"strconv"
 )
 
-// main 是程序的入口函数，负责解析命令行参数、加载数据文件并执行音频排除区间的合并导出操作。
+// main 是程序的入口函数
 //
 // 命令行参数:
-//   - threshold (必需): 差异阈值，必须是正整数，用于判断音频片段是否需要排除
+//   - threshold (可选): 差异阈值，必须是正整数，用于判断音频片段是否需要排除，默认使用gob内推荐参数
 //   - minDuration (可选): 最小排除时长（秒），必须是正数，默认使用 MinExclusionDurationSeconds
 //   - output_base (可选): 输出文件的基础名称，默认使用输入的 JSON 文件名
 //
@@ -27,47 +27,14 @@ import (
 //   - 0: 成功执行
 //   - 1: 发生错误（参数错误、文件未找到、处理失败等）
 func main() {
-	// 检查最少参数
-	if len(os.Args) < 2 {
-		printError("缺少 threshold 参数")
-		printUsage()
-		os.Exit(1)
-	}
-
-	// 解析 threshold（第一个参数，必需）
-	diffThreshold, err := strconv.Atoi(os.Args[1])
-	if err != nil || diffThreshold <= 0 {
-		printError(fmt.Sprintf("threshold 必须是正整数: %s", os.Args[1]))
-		printUsage()
-		os.Exit(1)
-	}
-
-	// 解析 minDuration（第二个参数，可选）
-	minDuration := MinExclusionDurationSeconds
-	if len(os.Args) >= 3 {
-		parsedDuration, err := strconv.ParseFloat(os.Args[2], 64)
-		if err != nil || parsedDuration <= 0 {
-			printError(fmt.Sprintf("minDuration 必须是正数: %s", os.Args[2]))
-			printUsage()
-			os.Exit(1)
-		}
-		minDuration = parsedDuration
-	}
-
-	// 解析 output base（第三个参数，可选）
-	var outputBase string
-	if len(os.Args) >= 4 {
-		outputBase = os.Args[3]
-	}
-
-	// 获取当前工作目录
+	// 1. 获取工作目录
 	workDir, err := os.Getwd()
 	if err != nil {
 		printError(fmt.Sprintf("获取工作目录时失败: %v", err))
 		os.Exit(1)
 	}
 
-	// 自动查找 .gob 文件
+	// 2. 自动查找文件 (提前查找，以便读取建议阈值)
 	gobFile, err := findFileByExtension(workDir, ".gob")
 	if err != nil {
 		printError(fmt.Sprintf("%v", err))
@@ -81,12 +48,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 未指定输出基础名则使用 json 文件名
-	if outputBase == "" {
-		outputBase = jsonFile
-	}
-
-	// 加载视频分析结果
+	// 3. 加载数据 (提前加载)
 	fmt.Printf(">> 加载视频分析结果: %s\n", filepath.Base(gobFile))
 	analysisResult, err := LoadAnalysisFromGob(gobFile)
 	if err != nil {
@@ -102,11 +64,56 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 处理并导出
+	// 4. 确定阈值 (DiffThreshold)
+	var diffThreshold uint32
+
+	if len(os.Args) >= 2 {
+		// 优先使用命令行参数
+		val, err := strconv.Atoi(os.Args[1])
+		if err != nil || val <= 0 {
+			printError(fmt.Sprintf("threshold 必须是正整数: %s", os.Args[1]))
+			printUsage()
+			os.Exit(1)
+		}
+		diffThreshold = uint32(val)
+		fmt.Printf(">> 使用手动阈值: %d\n", diffThreshold)
+	} else {
+		// 未提供参数，尝试使用建议阈值
+		if analysisResult.SuggestedThreshold > 0 {
+			diffThreshold = uint32(analysisResult.SuggestedThreshold)
+			fmt.Printf(">> 使用建议阈值: %d\n", diffThreshold)
+		} else {
+			// 既没参数也没建议值
+			printError("缺少 threshold 参数，且分析结果中未包含有效建议阈值")
+			printUsage()
+			os.Exit(1)
+		}
+	}
+
+	// 5. 解析 minDuration（第二个参数，可选）
+	// 注意：如果想设置 minDuration，必须在命令行显式提供 threshold
+	minDuration := MinExclusionDurationSeconds
+	if len(os.Args) >= 3 {
+		parsedDuration, err := strconv.ParseFloat(os.Args[2], 64)
+		if err != nil || parsedDuration <= 0 {
+			printError(fmt.Sprintf("minDuration 必须是正数: %s", os.Args[2]))
+			printUsage()
+			os.Exit(1)
+		}
+		minDuration = parsedDuration
+	}
+
+	// 6. 解析 output base（第三个参数，可选）
+	outputBase := jsonFile // 默认
+	if len(os.Args) >= 4 {
+		outputBase = os.Args[3]
+	}
+
+	// 7. 处理并导出
 	outputFilename, err := MergeExclusionsAndExport(
 		analysisResult,
 		timeline,
-		int32(diffThreshold),
+		diffThreshold,
 		minDuration,
 		outputBase,
 	)
@@ -163,8 +170,8 @@ func findFileByExtension(dir, ext string) (string, error) {
 //
 // 显示命令行参数的格式和要求，帮助用户正确使用程序。
 func printUsage() {
-	fmt.Fprintf(os.Stderr, "用法: %s <threshold> [minDuration] [output_base]\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "需要当前目录下存在 .gob 和 .json 文件\n")
+	fmt.Fprintf(os.Stderr, "用法: %s [threshold] [minDuration] [output_base]\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "提示: 如果省略 threshold，将使用 .gob 文件中的建议阈值\n")
 }
 
 // printError 以统一格式输出错误消息到标准错误流。
