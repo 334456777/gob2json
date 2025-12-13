@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // 排除检测相关常量
@@ -315,12 +314,8 @@ func generateOutputFilename(baseFilename string) string {
 	// 移除扩展名
 	ext := filepath.Ext(baseFilename)
 	baseName := strings.TrimSuffix(baseFilename, ext)
-
-	// 添加时间戳
-	timestamp := time.Now().Format("20060102_150405")
-
 	// 确保 .json 扩展名
-	return fmt.Sprintf("%s_%s.json", baseName, timestamp)
+	return fmt.Sprintf("%s.json", baseName)
 }
 
 // Helper functions for Go versions before 1.21

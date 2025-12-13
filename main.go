@@ -76,12 +76,9 @@ func main() {
 			os.Exit(1)
 		}
 		diffThreshold = uint32(val)
-		fmt.Printf(">> 使用手动阈值: %d\n", diffThreshold)
 	} else {
-		// 未提供参数，尝试使用建议阈值
 		if analysisResult.SuggestedThreshold > 0 {
 			diffThreshold = uint32(analysisResult.SuggestedThreshold)
-			fmt.Printf(">> 使用建议阈值: %d\n", diffThreshold)
 		} else {
 			// 既没参数也没建议值
 			printError("缺少 threshold 参数，且分析结果中未包含有效建议阈值")
@@ -104,7 +101,7 @@ func main() {
 	}
 
 	// 6. 解析 output base（第三个参数，可选）
-	outputBase := jsonFile // 默认
+	outputBase := "autoeditor" // 默认
 	if len(os.Args) >= 4 {
 		outputBase = os.Args[3]
 	}
@@ -160,7 +157,7 @@ func findFileByExtension(dir, ext string) (string, error) {
 				}
 			}
 		}
-		fmt.Fprintf(os.Stderr, "⚠  发现多个 %s 文件，使用: %s\n", ext, filepath.Base(selected))
+		fmt.Fprintf(os.Stderr, "⚠  发现多个 %s 文件，使用 %s\n", ext, filepath.Base(selected))
 	}
 
 	return selected, nil
