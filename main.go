@@ -67,16 +67,16 @@ func main() {
 		outputBase = jsonFile
 	}
 
-	// 加载分析结果
-	fmt.Printf(">> 加载分析结果: %s\n", filepath.Base(gobFile))
+	// 加载视频分析结果
+	fmt.Printf(">> 加载视频分析结果: %s\n", filepath.Base(gobFile))
 	analysisResult, err := LoadAnalysisFromGob(gobFile)
 	if err != nil {
 		printError(fmt.Sprintf("加载 gob 文件时失败: %v", err))
 		os.Exit(1)
 	}
 
-	// 加载时间线
-	fmt.Printf(">> 加载时间线: %s\n", filepath.Base(jsonFile))
+	// 加载音频分析结果
+	fmt.Printf(">> 加载音频分析结果: %s\n", filepath.Base(jsonFile))
 	timeline, err := ParseTimelineFromFile(jsonFile)
 	if err != nil {
 		printError(fmt.Sprintf("加载 json 文件时失败: %v", err))
@@ -93,11 +93,11 @@ func main() {
 	)
 	if err != nil {
 		fmt.Println()
-		printError(fmt.Sprintf("处理时失败: %v", err))
+		printError(fmt.Sprintf("整合时失败: %v", err))
 		os.Exit(1)
 	}
 
-	fmt.Printf("✓  处理完成 -> %s\n", filepath.Base(outputFilename))
+	fmt.Printf("✓  整合完成 -> %s\n", filepath.Base(outputFilename))
 }
 
 // findFileByExtension 在目录中查找指定扩展名的文件。
