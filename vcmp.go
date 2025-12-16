@@ -36,13 +36,21 @@ func (r *AnalysisResult) SaveToGob(outputPath string) error {
 	}
 	defer file.Close()
 
-	return SaveAnalysisResult(file, r)
+	if err := SaveAnalysisResult(file, r); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // SaveAnalysisResult 将 AnalysisResult 以 gzip 压缩方式写入 Writer
 func SaveAnalysisResult(w io.Writer, result *AnalysisResult) error {
 	if result == nil {
 		return errors.New("分析结果为空")
+	}
+
+	if err := result.Validate(); err != nil {
+		return fmt.Errorf("验证失败: %w", err)
 	}
 
 	gw := gzip.NewWriter(w)
@@ -53,7 +61,37 @@ func SaveAnalysisResult(w io.Writer, result *AnalysisResult) error {
 		return fmt.Errorf("编码分析结果失败: %w", err)
 	}
 
-	return gw.Close()
+	if err := gw.Close(); err != nil {
+		return fmt.Errorf("关闭 gzip 写入器失败: %w", err)
+	}
+
+	return nil
+}
+
+// SaveAnalysisResultToFile 将 AnalysisResult 以 gzip 压缩方式保存到文件
+func SaveAnalysisResultToFile(filename string, result *AnalysisResult) error {
+	if result == nil {
+		return errors.New("分析结果为空")
+	}
+
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %w", err)
+	}
+	defer file.Close()
+
+	return SaveAnalysisResult(file, result)
+}
+
+// LoadFromGob 从 gzip 压缩的 Gob 文件加载分析结果
+func (r *AnalysisResult) LoadFromGob(filePath string) error {
+	result, err := LoadAnalysisFromGob(filePath)
+	if err != nil {
+		return err
+	}
+
+	*r = *result
+	return nil
 }
 
 // LoadAnalysisFromGob 从 gzip 压缩的 Gob 文件加载 AnalysisResult
@@ -81,7 +119,22 @@ func LoadAnalysisResult(r io.Reader) (*AnalysisResult, error) {
 		return nil, fmt.Errorf("解码分析结果失败: %w", err)
 	}
 
+	if err := result.Validate(); err != nil {
+		return nil, fmt.Errorf("验证失败: %w", err)
+	}
+
 	return &result, nil
+}
+
+// LoadAnalysisResultFromFile 从文件以 gzip 解压方式加载 AnalysisResult
+func LoadAnalysisResultFromFile(filename string) (*AnalysisResult, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer file.Close()
+
+	return LoadAnalysisResult(file)
 }
 
 // Validate 检查 AnalysisResult 数据是否有效
@@ -97,7 +150,15 @@ func (r *AnalysisResult) Validate() error {
 	if r.FPS <= 0 {
 		return fmt.Errorf("FPS 必须为正数，得到 %f", r.FPS)
 	}
-	
+
+	if r.Width <= 0 {
+		return fmt.Errorf("宽度必须为正数，得到 %d", r.Width)
+	}
+
+	if r.Height <= 0 {
+		return fmt.Errorf("高度必须为正数，得到 %d", r.Height)
+	}
+
 	if r.TotalFrames < 0 {
 		return fmt.Errorf("总帧数不能为负数，得到 %d", r.TotalFrames)
 	}
@@ -123,10 +184,34 @@ func (r *AnalysisResult) AddDiffCount(count uint32) {
 	r.DiffCounts = append(r.DiffCounts, count)
 }
 
-// GetDiffCount 返回指定索引的差异计数 (uint32)
+// SetDiffCounts 设置整个差异计数切片
+func (r *AnalysisResult) SetDiffCounts(counts []uint32) {
+	r.DiffCounts = make([]uint32, len(counts))
+	copy(r.DiffCounts, counts)
+}
+
+// GetDiffCountsLength 返回差异计数的数量
+func (r *AnalysisResult) GetDiffCountsLength() int {
+	return len(r.DiffCounts)
+}
+
+// Duration 返回视频总时长（秒）
+func (r *AnalysisResult) Duration() float64 {
+	if r.FPS <= 0 {
+		return 0
+	}
+	return float64(r.TotalFrames) / r.FPS
+}
+
+// ClearDiffCounts 清空所有差异计数
+func (r *AnalysisResult) ClearDiffCounts() {
+	r.DiffCounts = make([]uint32, 0)
+}
+
+// GetDiffCount 返回指定索引的差异计数，索引越界时返回错误
 func (r *AnalysisResult) GetDiffCount(index int) (uint32, error) {
 	if index < 0 || index >= len(r.DiffCounts) {
-		return 0, fmt.Errorf("索引 %d 越界", index)
+		return 0, fmt.Errorf("索引 %d 越界(长度: %d)", index, len(r.DiffCounts))
 	}
 	return r.DiffCounts[index], nil
 }
