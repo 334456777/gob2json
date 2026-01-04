@@ -10,18 +10,19 @@ import (
 // main 是程序的入口函数
 //
 // 命令行参数:
-//   - threshold (可选): 差异阈值，必须是正整数，用于判断音频片段是否需要排除，默认使用gob内推荐参数
+//   - threshold (可选): 差异阈值，必须是正整数，用于判断音频片段是否需要排除，默认使用 pb.zst 内推荐参数
 //   - minDuration (可选): 最小排除时长（秒），必须是正数，默认使用 MinExclusionDurationSeconds
 //   - output_base (可选): 输出文件的基础名称，默认使用输入的 JSON 文件名
 //
 // 程序会自动在当前工作目录中查找:
-//   - 一个 .gob 文件：包含音频分析结果
+//   - 一个 .pb.zst 文件：包含视频分析结果（Protocol Buffers + Zstandard 压缩）
 //   - 一个 .json 文件：包含时间线数据（优先使用 autoeditor.json）
 //
 // 使用示例:
-//   program 30                    // 使用阈值 30，其他参数使用默认值
-//   program 30 2.5                // 使用阈值 30，最小时长 2.5 秒
-//   program 30 2.5 output         // 指定输出基础名称为 output
+//
+//	program 30                    // 使用阈值 30，其他参数使用默认值
+//	program 30 2.5                // 使用阈值 30，最小时长 2.5 秒
+//	program 30 2.5 output         // 指定输出基础名称为 output
 //
 // 退出状态码:
 //   - 0: 成功执行
@@ -35,7 +36,7 @@ func main() {
 	}
 
 	// 2. 自动查找文件 (提前查找，以便读取建议阈值)
-	gobFile, err := findFileByExtension(workDir, ".gob")
+	pbzstFile, err := findFileByExtension(workDir, ".pb.zst")
 	if err != nil {
 		printError(fmt.Sprintf("%v", err))
 		os.Exit(1)
@@ -49,10 +50,10 @@ func main() {
 	}
 
 	// 3. 加载数据 (提前加载)
-	fmt.Printf(">> 加载视频分析结果: %s\n", filepath.Base(gobFile))
-	analysisResult, err := LoadAnalysisFromGob(gobFile)
+	fmt.Printf(">> 加载视频分析结果: %s\n", filepath.Base(pbzstFile))
+	analysisResult, err := LoadAnalysisResultFromFile(pbzstFile)
 	if err != nil {
-		printError(fmt.Sprintf("加载 gob 文件时失败: %v", err))
+		printError(fmt.Sprintf("加载 pb.zst 文件时失败: %v", err))
 		os.Exit(1)
 	}
 
@@ -130,7 +131,7 @@ func main() {
 //
 // 参数:
 //   - dir: 要搜索的目录路径
-//   - ext: 文件扩展名（包含点号，如 ".json" 或 ".gob"）
+//   - ext: 文件扩展名（包含点号，如 ".json" 或 ".pb.zst"）
 //
 // 返回值:
 //   - string: 找到的文件完整路径
@@ -168,7 +169,7 @@ func findFileByExtension(dir, ext string) (string, error) {
 // 显示命令行参数的格式和要求，帮助用户正确使用程序。
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "用法: %s [threshold] [minDuration] [output_base]\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "提示: 如果省略 threshold，将使用 .gob 文件中的建议阈值\n")
+	fmt.Fprintf(os.Stderr, "提示: 如果省略 threshold，将使用 .pb.zst 文件中的建议阈值\n")
 }
 
 // printError 以统一格式输出错误消息到标准错误流。

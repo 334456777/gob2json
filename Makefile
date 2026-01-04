@@ -6,10 +6,19 @@ INSTALL_PATH=/opt/homebrew/bin
 GO=go
 GORELEASE=-trimpath
 GOFLAGS=-ldflags="-s -w"
+PROTOC=protoc
+PROTO_DIR=proto
 
 # 默认目标
 .PHONY: all
-all: build
+all: proto build
+
+# 生成 Protocol Buffers 代码
+.PHONY: proto
+proto:
+	@echo ">> 生成 Protocol Buffers 代码..."
+	@$(PROTOC) --go_out=. --go_opt=paths=source_relative $(PROTO_DIR)/analysis.proto
+	@echo "✓ Proto 生成完成"
 
 # 构建二进制文件
 .PHONY: build
@@ -38,6 +47,7 @@ uninstall:
 clean:
 	@echo ">> 清理构建文件..."
 	@rm -f $(BINARY_NAME)
+	@rm -f $(PROTO_DIR)/*.pb.go
 	@echo "✓ 清理完成"
 
 # 构建并运行（用于测试）
@@ -52,6 +62,7 @@ help:
 	@echo "vcmp - Video Comparison Tool"
 	@echo ""
 	@echo "可用命令:"
+	@echo "  make proto      - 生成 Protocol Buffers 代码"
 	@echo "  make build      - 构建二进制文件"
 	@echo "  make install    - 构建并安装到系统路径 (需要sudo)"
 	@echo "  make uninstall  - 从系统路径卸载"

@@ -1,12 +1,15 @@
 package main
 
 import (
-	"compress/gzip"
-	"encoding/gob"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+
+	pb "gob2json/proto"
+
+	"github.com/klauspost/compress/zstd"
+	"google.golang.org/protobuf/proto"
 )
 
 // AnalysisResult 保存视频分析的完整结果
@@ -20,8 +23,32 @@ type AnalysisResult struct {
 	DiffCounts         []uint32 // 每一帧的差异像素数量
 }
 
-// SaveToGob 将分析结果保存为 gzip 压缩的 Gob 文件
-func (r *AnalysisResult) SaveToGob(outputPath string) error {
+// toProto 将 AnalysisResult 转换为 protobuf 消息
+func (r *AnalysisResult) toProto() *pb.AnalysisResult {
+	return &pb.AnalysisResult{
+		VideoFile:          r.VideoFile,
+		Fps:                r.FPS,
+		Width:              int32(r.Width),
+		Height:             int32(r.Height),
+		TotalFrames:        int32(r.TotalFrames),
+		SuggestedThreshold: r.SuggestedThreshold,
+		DiffCounts:         r.DiffCounts,
+	}
+}
+
+// fromProto 从 protobuf 消息填充 AnalysisResult
+func (r *AnalysisResult) fromProto(pbResult *pb.AnalysisResult) {
+	r.VideoFile = pbResult.VideoFile
+	r.FPS = pbResult.Fps
+	r.Width = int(pbResult.Width)
+	r.Height = int(pbResult.Height)
+	r.TotalFrames = int(pbResult.TotalFrames)
+	r.SuggestedThreshold = pbResult.SuggestedThreshold
+	r.DiffCounts = pbResult.DiffCounts
+}
+
+// SaveToFile 将分析结果保存为 zstd 压缩的 protobuf 文件 (.pb.zst)
+func (r *AnalysisResult) SaveToFile(outputPath string) error {
 	if r == nil {
 		return errors.New("分析结果为空")
 	}
@@ -36,14 +63,10 @@ func (r *AnalysisResult) SaveToGob(outputPath string) error {
 	}
 	defer file.Close()
 
-	if err := SaveAnalysisResult(file, r); err != nil {
-		return err
-	}
-
-	return nil
+	return SaveAnalysisResult(file, r)
 }
 
-// SaveAnalysisResult 将 AnalysisResult 以 gzip 压缩方式写入 Writer
+// SaveAnalysisResult 将 AnalysisResult 以 zstd 压缩方式写入 Writer
 func SaveAnalysisResult(w io.Writer, result *AnalysisResult) error {
 	if result == nil {
 		return errors.New("分析结果为空")
@@ -53,22 +76,31 @@ func SaveAnalysisResult(w io.Writer, result *AnalysisResult) error {
 		return fmt.Errorf("验证失败: %w", err)
 	}
 
-	gw := gzip.NewWriter(w)
-	defer gw.Close()
-
-	encoder := gob.NewEncoder(gw)
-	if err := encoder.Encode(result); err != nil {
-		return fmt.Errorf("编码分析结果失败: %w", err)
+	// 序列化为 protobuf
+	data, err := proto.Marshal(result.toProto())
+	if err != nil {
+		return fmt.Errorf("序列化 protobuf 失败: %w", err)
 	}
 
-	if err := gw.Close(); err != nil {
-		return fmt.Errorf("关闭 gzip 写入器失败: %w", err)
+	// 使用 zstd 压缩
+	zw, err := zstd.NewWriter(w, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
+	if err != nil {
+		return fmt.Errorf("创建 zstd 写入器失败: %w", err)
+	}
+	defer zw.Close()
+
+	if _, err := zw.Write(data); err != nil {
+		return fmt.Errorf("写入压缩数据失败: %w", err)
+	}
+
+	if err := zw.Close(); err != nil {
+		return fmt.Errorf("关闭 zstd 写入器失败: %w", err)
 	}
 
 	return nil
 }
 
-// SaveAnalysisResultToFile 将 AnalysisResult 以 gzip 压缩方式保存到文件
+// SaveAnalysisResultToFile 将 AnalysisResult 以 zstd 压缩方式保存到文件
 func SaveAnalysisResultToFile(filename string, result *AnalysisResult) error {
 	if result == nil {
 		return errors.New("分析结果为空")
@@ -83,9 +115,9 @@ func SaveAnalysisResultToFile(filename string, result *AnalysisResult) error {
 	return SaveAnalysisResult(file, result)
 }
 
-// LoadFromGob 从 gzip 压缩的 Gob 文件加载分析结果
-func (r *AnalysisResult) LoadFromGob(filePath string) error {
-	result, err := LoadAnalysisFromGob(filePath)
+// LoadFromFile 从 zstd 压缩的 protobuf 文件加载分析结果
+func (r *AnalysisResult) LoadFromFile(filePath string) error {
+	result, err := LoadAnalysisResultFromFile(filePath)
 	if err != nil {
 		return err
 	}
@@ -94,8 +126,8 @@ func (r *AnalysisResult) LoadFromGob(filePath string) error {
 	return nil
 }
 
-// LoadAnalysisFromGob 从 gzip 压缩的 Gob 文件加载 AnalysisResult
-func LoadAnalysisFromGob(filePath string) (*AnalysisResult, error) {
+// LoadAnalysisResultFromFile 从 zstd 压缩的 protobuf 文件加载 AnalysisResult
+func LoadAnalysisResultFromFile(filePath string) (*AnalysisResult, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("打开文件失败: %w", err)
@@ -105,36 +137,35 @@ func LoadAnalysisFromGob(filePath string) (*AnalysisResult, error) {
 	return LoadAnalysisResult(file)
 }
 
-// LoadAnalysisResult 从 Reader 以 gzip 解压方式读取 AnalysisResult
+// LoadAnalysisResult 从 Reader 以 zstd 解压方式读取 AnalysisResult
 func LoadAnalysisResult(r io.Reader) (*AnalysisResult, error) {
-	gr, err := gzip.NewReader(r)
+	// 创建 zstd 解压器
+	zr, err := zstd.NewReader(r)
 	if err != nil {
-		return nil, fmt.Errorf("创建 gzip 读取器失败: %w", err)
+		return nil, fmt.Errorf("创建 zstd 读取器失败: %w", err)
 	}
-	defer gr.Close()
+	defer zr.Close()
 
-	var result AnalysisResult
-	decoder := gob.NewDecoder(gr)
-	if err := decoder.Decode(&result); err != nil {
-		return nil, fmt.Errorf("解码分析结果失败: %w", err)
+	// 读取所有解压后的数据
+	data, err := io.ReadAll(zr)
+	if err != nil {
+		return nil, fmt.Errorf("读取压缩数据失败: %w", err)
 	}
+
+	// 反序列化 protobuf
+	var pbResult pb.AnalysisResult
+	if err := proto.Unmarshal(data, &pbResult); err != nil {
+		return nil, fmt.Errorf("反序列化 protobuf 失败: %w", err)
+	}
+
+	result := &AnalysisResult{}
+	result.fromProto(&pbResult)
 
 	if err := result.Validate(); err != nil {
 		return nil, fmt.Errorf("验证失败: %w", err)
 	}
 
-	return &result, nil
-}
-
-// LoadAnalysisResultFromFile 从文件以 gzip 解压方式加载 AnalysisResult
-func LoadAnalysisResultFromFile(filename string) (*AnalysisResult, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, fmt.Errorf("打开文件失败: %w", err)
-	}
-	defer file.Close()
-
-	return LoadAnalysisResult(file)
+	return result, nil
 }
 
 // Validate 检查 AnalysisResult 数据是否有效

@@ -9,7 +9,7 @@
 将两个独立的分析结果进行**交集运算**：
 
 1.  **auto-editor 的静音片段** (`autoeditor.json`) - 包含音频静音区间
-2.  **vcmp 的静止画面片段** (`.gob` 文件) - 包含视频画面静止区间
+2.  **vcmp 的静止画面片段** (`.pb.zst` 文件) - 包含视频画面静止区间（Protocol Buffers + Zstandard 压缩）
 
 输出：**同时静音且静止的区间**，格式为 auto-editor v1 时间线 JSON，可直接用于视频剪辑。
 
@@ -39,7 +39,7 @@ make install
     在工作目录下放置两个文件：
 
       - `autoeditor.json` - 由 auto-editor 生成的时间线文件
-      - `*.gob` - 由 vcmp 生成的视频分析结果文件（需包含建议阈值数据）
+      - `*.pb.zst` - 由 vcmp 生成的视频分析结果文件（Protocol Buffers + Zstandard 压缩格式，需包含建议阈值数据）
 
 2.  **运行程序**
 
@@ -50,7 +50,7 @@ make install
     **参数说明：**
 
       - `threshold` (可选): 差异阈值（整数）。
-          - **如果不填**: 程序将自动使用 `.gob` 文件中记录的 `SuggestedThreshold`。
+          - **如果不填**: 程序将自动使用 `.pb.zst` 文件中记录的 `SuggestedThreshold`。
           - **如果填入**: 将覆盖自动建议值，强制使用指定的阈值。
       - `minDuration` (可选): 最小排除时长（秒），必须是正数，默认使用 `20.0` 秒。
           - *注意：若要指定 `minDuration`，必须显式提供 `threshold` 参数。*
@@ -68,7 +68,7 @@ make install
 
 ```bash
 # 模式 1: 全自动模式
-# 直接使用 gob 文件内的建议阈值，默认最小排除时长 20秒
+# 直接使用 pb.zst 文件内的建议阈值，默认最小排除时长 20秒
 gob2json
 
 # 模式 2: 手动指定阈值
@@ -87,7 +87,7 @@ gob2json 30 2.5 cleaned_output
 
 ```
 ┌─────────────────┐     ┌─────────────────┐
-│  autoeditor.json│     │   analysis.gob  │
+│  autoeditor.json│     │  analysis.pb.zst│
 │   (静音区间)    │     │  (静止画面区间) │
 └────────┬────────┘     └────────┬────────┘
          │                       │
@@ -109,7 +109,7 @@ gob2json 30 2.5 cleaned_output
 
 1.  **解析输入文件**
 
-      - 从 `.gob` 文件读取帧差异数据（`DiffCounts`）和建议阈值（`SuggestedThreshold`）
+      - 从 `.pb.zst` 文件读取帧差异数据（`DiffCounts`）和建议阈值（`SuggestedThreshold`）
       - 从 `autoeditor.json` 读取时间线片段（`Chunks`）
 
 2.  **区间检测**
@@ -133,9 +133,11 @@ gob2json 30 2.5 cleaned_output
 ```
 gob2json/
 ├── main.go          # 入口函数，参数解析与自动阈值逻辑
-├── vcmp.go          # .gob 文件读写，AnalysisResult 数据结构定义
+├── vcmp.go          # .pb.zst 文件读写，AnalysisResult 数据结构定义
 ├── autoeditor.go    # auto-editor JSON 格式解析与生成
 ├── merge.go         # 核心算法：区间检测、交集计算、合并导出
+├── proto/           # Protocol Buffers 定义
+│   └── analysis.proto
 ├── go.mod           # Go 模块定义
 ├── Makefile         # 构建脚本
 └── README.md        # 本文档
@@ -178,20 +180,24 @@ make help
 }
 ```
 
-**vcmp .gob 文件结构:**
+**vcmp .pb.zst 文件结构 (Protocol Buffers):**
 
-```go
-// AnalysisResult 保存视频分析的完整结果
-type AnalysisResult struct {
-   VideoFile          string   // 被分析的视频文件路径
-   FPS                float64  // 视频帧率
-   Width              int      // 视频宽度（像素）
-   Height             int      // 视频高度（像素）
-   TotalFrames        int      // 视频总帧数
-   SuggestedThreshold float64  // 自动计算的建议阈值
-   DiffCounts         []uint32 // 每一帧的差异像素数量 (注意类型为 uint32)
+```protobuf
+syntax = "proto3";
+package analysis;
+
+message AnalysisResult {
+  string video_file = 1;           // 被分析的视频文件路径
+  double fps = 2;                  // 视频帧率
+  int32 width = 3;                 // 视频宽度（像素）
+  int32 height = 4;                // 视频高度（像素）
+  int32 total_frames = 5;          // 视频总帧数
+  double suggested_threshold = 6;  // 自动计算的建议阈值
+  repeated uint32 diff_counts = 7; // 每一帧的差异像素数量
 }
 ```
+
+文件使用 Zstandard (zstd) 压缩以减少存储空间。
 
 ### 输出格式
 
@@ -212,7 +218,7 @@ const (
 
 ### 阈值机制
 
-程序优先读取命令行参数。如果未提供命令行参数，则会尝试使用 `.gob` 文件中存储的 `SuggestedThreshold`。如果两者都不可用（例如旧版 gob 文件且未指定参数），程序将报错退出。
+程序优先读取命令行参数。如果未提供命令行参数，则会尝试使用 `.pb.zst` 文件中存储的 `SuggestedThreshold`。如果两者都不可用，程序将报错退出。
 
   - **低阈值**: 更严格，可能将微小的动作（如鼠标抖动）也视为非静止。
   - **高阈值**: 更宽松，容忍一定的画面变化。
@@ -224,10 +230,10 @@ const (
 1.  **找不到输入文件**
 
     ```
-    ✗ 未找到 .gob 文件
+    ✗ 未找到 .pb.zst 文件
     ```
 
-    → 确保工作目录下存在 `.gob` 和 `.json` 文件。
+    → 确保工作目录下存在 `.pb.zst` 和 `.json` 文件。
 
 2.  **缺少阈值**
 
@@ -235,7 +241,7 @@ const (
     ✗ 缺少 threshold 参数，且分析结果中未包含有效建议阈值
     ```
 
-    → 说明 `.gob` 文件可能由旧版工具生成，不包含建议阈值。此时必须在命令行手动指定一个整数阈值（如 `gob2json 30`）。
+    → 说明 `.pb.zst` 文件不包含建议阈值。此时必须在命令行手动指定一个整数阈值（如 `gob2json 30`）。
 
 3.  **发现多个 JSON 文件**
 
@@ -260,6 +266,7 @@ const (
 ### 开发环境要求
 
   - Go 1.21 或更高版本
+  - Protocol Buffers 编译器 (protoc)
   - 熟悉 auto-editor 和 vcmp 工具的使用
 
 ## 📄 许可证
