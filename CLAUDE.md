@@ -2,58 +2,58 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 项目概述
+## Project Overview
 
-gob2json 是一个视频静音静止区间检测工具，对两个独立分析结果进行**交集运算**：
-- **auto-editor 静音片段** (`autoeditor.json`) - 音频静音区间
-- **vcmp 静止画面片段** (`.pb.zst`) - 视频画面静止区间（Protocol Buffers + Zstandard 压缩）
+gob2json is a video silence and static interval detection tool that performs **intersection operations** on two independent analysis results:
+- **auto-editor silence segments** (`autoeditor.json`) - Audio silence intervals
+- **vcmp static frame segments** (`.pb.zst`) - Video static frame intervals (Protocol Buffers + Zstandard compression)
 
-输出 auto-editor v1 时间线 JSON，交集区间速度标记为 `0.0`（排除）。
+Outputs auto-editor v1 timeline JSON with intersection intervals marked as speed `0.0` (excluded).
 
-## 构建命令
+## Build Commands
 
 ```bash
-# 修改 .proto 文件后必须执行
+# Must run after modifying .proto files
 make proto
 
-# 构建二进制文件
+# Build binary
 make build
 
-# 安装到系统路径（需要 sudo）
+# Install to system path (requires sudo)
 make install
 
-# 清理构建文件
+# Clean build files
 make clean
 ```
 
-**重要**：修改 `proto/analysis.proto` 后必须运行 `make proto` 重新生成代码。
+**Important**: After modifying `proto/analysis.proto`, you must run `make proto` to regenerate code.
 
-## 代码架构
+## Code Architecture
 
-四个核心模块，每个文件单一职责：
+Four core modules, each with a single responsibility:
 
-- **main.go** - 入口与参数处理
-  - 阈值优先级：命令行参数 > `.pb.zst` 的 `SuggestedThreshold`
-  - 自动查找工作目录中的 `.pb.zst` 和 `.json` 文件
-  - 参数：`[threshold] [minDuration] [output_base]`
+- **main.go** - Entry point and parameter handling
+  - Threshold priority: Command line arguments > `.pb.zst` `SuggestedThreshold`
+  - Auto-find `.pb.zst` and `.json` files in working directory
+  - Parameters: `[threshold] [minDuration] [output_base]`
 
-- **vcmp.go** - 视频分析结果读写
-  - `AnalysisResult` 结构体：视频元数据 + 帧差异计数数组
-  - Protocol Buffers 序列化 + Zstandard 压缩
-  - 提供 `Validate()` 验证方法
+- **vcmp.go** - Video analysis result I/O
+  - `AnalysisResult` struct: Video metadata + frame difference count array
+  - Protocol Buffers serialization + Zstandard compression
+  - Provides `Validate()` method
 
-- **autoeditor.go** - 时间线 JSON 解析/生成
-  - `Timeline`/`Chunk` 结构体遵循 v1 规范
-  - 严格验证：版本号、时间连续性、速度范围
-  - `validateTimeline()` 确保数据完整性
+- **autoeditor.go** - Timeline JSON parsing/generation
+  - `Timeline`/`Chunk` structs follow v1 specification
+  - Strict validation: version number, time continuity, speed range
+  - `validateTimeline()` ensures data integrity
 
-- **merge.go** - 核心算法
-  - `FindExclusionRegionsFromAnalysis()` - 从帧差异数据检测静止区间
-  - `FindExclusionRegionsFromTimeline()` - 从时间线提取静音区间
-  - `FindOverlappingRegions()` - 计算两组区间交集
-  - `ApplyExclusionToTimeline()` - 将排除区域应用到时间线（拆分片段）
+- **merge.go** - Core algorithms
+  - `FindExclusionRegionsFromAnalysis()` - Detect static intervals from frame difference data
+  - `FindExclusionRegionsFromTimeline()` - Extract silence intervals from timeline
+  - `FindOverlappingRegions()` - Calculate intersection of two interval sets
+  - `ApplyExclusionToTimeline()` - Apply exclusion regions to timeline (split chunks)
 
-## 数据流
+## Data Flow
 
 ```
 .pb.zst (AnalysisResult) ──┐
@@ -61,44 +61,44 @@ make clean
 autoeditor.json (Timeline) ─┘
 ```
 
-## 核心算法
+## Core Algorithms
 
-**区间检测** (`merge.go:30-90`)：
-- 差异值 > `diffThreshold` 的连续帧
-- 达到 `minFrames`（`minDuration * fps`）才形成区间
+**Interval Detection** (`merge.go:30-90`):
+- Consecutive frames where difference value > `diffThreshold`
+- Must reach `minFrames` (`minDuration * fps`) to form an interval
 
-**交集计算** (`merge.go:118-139`)：
-- 遍历两组区间找重叠：`max(start1, start2)` 到 `min(end1, end2)`
-- 合并相邻或重叠的区间
+**Intersection Calculation** (`merge.go:118-139`):
+- Iterate through two interval sets to find overlaps: `max(start1, start2)` to `min(end1, end2)`
+- Merge adjacent or overlapping intervals
 
-**应用排除** (`merge.go:174-254`)：
-- 拆分时间线片段为三部分：排除前、排除（速度 0.0）、排除后
+**Apply Exclusion** (`merge.go:174-254`):
+- Split timeline chunks into three parts: pre-exclusion, exclusion (speed 0.0), post-exclusion
 
-## 关键常量 (merge.go)
+## Key Constants (merge.go)
 
 ```go
-MinExclusionDurationSeconds = 20.0   // 最小排除时长（秒）
-ExcludedSpeedMarker = 0.0             // 排除速度标记
-SkipSpeedHigh = 9999.0                // 时间线排除的高速度值
-SkipSpeedZero = 0.0                   // 时间线排除的零速度值
+MinExclusionDurationSeconds = 20.0   // Minimum exclusion duration (seconds)
+ExcludedSpeedMarker = 0.0             // Exclusion speed marker
+SkipSpeedHigh = 9999.0                // High speed value for timeline exclusion
+SkipSpeedZero = 0.0                   // Zero speed value for timeline exclusion
 ```
 
-## 时间线验证规则 (autoeditor.go:120-171)
+## Timeline Validation Rules (autoeditor.go:120-171)
 
-严格的 v1 规范：
-1. 版本号必须为 "1"
-2. 第一个 chunk 必须从时间 0 开始
-3. chunk 之间无间隙（连续性）
-4. `Start < End`，速度范围 `[0.0, 99999.0]`
+Strict v1 specification:
+1. Version must be "1"
+2. First chunk must start at time 0
+3. No gaps between chunks (continuity)
+4. `Start < End`, speed range `[0.0, 99999.0]`
 
-## 阈值机制
+## Threshold Mechanism
 
-- **低阈值**：严格，微小画面变化也视为非静止
-- **高阈值**：宽松，容忍一定画面变化
-- **自动建议值**：存储在 `.pb.zst` 的 `SuggestedThreshold` 字段
+- **Low threshold**: Strict, treats minor frame changes as non-static
+- **High threshold**: Lenient, tolerates certain frame changes
+- **Auto-suggested value**: Stored in `.pb.zst` `SuggestedThreshold` field
 
-## Protocol Buffers 集成
+## Protocol Buffers Integration
 
-- 定义：`proto/analysis.proto`
-- 生成：`proto/analysis.pb.go`（`make proto`）
-- `diff_counts` 使用 `packed = true` 优化存储
+- Definition: `proto/analysis.proto`
+- Generated: `proto/analysis.pb.go` (via `make proto`)
+- `diff_counts` uses `packed = true` for storage optimization

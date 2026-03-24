@@ -6,37 +6,37 @@ import (
 	"strings"
 )
 
-// 排除检测相关常量
+// Exclusion detection related constants
 const (
-	// 最小排除时长（秒），连续帧需达到此时长才被视为排除区域
+	// Minimum exclusion duration in seconds, consecutive frames must reach this duration to be considered an exclusion region
 	MinExclusionDurationSeconds = 20.0
 
-	// 排除区域的速度标记值
+	// Speed marker value for exclusion regions
 	ExcludedSpeedMarker = 0.0
 
-	// 时间线中表示排除的高速度值
+	// High speed value indicating exclusion in timeline
 	SkipSpeedHigh = 9999.0
 
-	// 时间线中表示排除的零速度值
+	// Zero speed value indicating exclusion in timeline
 	SkipSpeedZero = 0.0
 )
 
-// ExclusionRegion 表示需要排除的时间区域
+// ExclusionRegion represents a time region to be excluded
 type ExclusionRegion struct {
-	Start float64 // 开始时间（秒）
-	End   float64 // 结束时间（秒）
+	Start float64 // Start time in seconds
+	End   float64 // End time in seconds
 }
 
-// FindExclusionRegionsFromAnalysis 从分析结果中查找排除区域
-// diffThreshold: 差异值超过此阈值的帧被视为排除候选
-// minDurationSeconds: 最小连续时长（默认 20 秒）
+// FindExclusionRegionsFromAnalysis finds exclusion regions from analysis results
+// diffThreshold: Frames with difference value exceeding this threshold are considered exclusion candidates
+// minDurationSeconds: Minimum consecutive duration (default 20 seconds)
 func FindExclusionRegionsFromAnalysis(result *AnalysisResult, diffThreshold uint32, minDurationSeconds float64) ([]ExclusionRegion, error) {
 	if result == nil {
-		return nil, fmt.Errorf("分析结果为空")
+		return nil, fmt.Errorf("analysis result is nil")
 	}
 
 	if err := result.Validate(); err != nil {
-		return nil, fmt.Errorf("分析结果无效: %w", err)
+		return nil, fmt.Errorf("invalid analysis result: %w", err)
 	}
 
 	if minDurationSeconds <= 0 {
@@ -45,10 +45,10 @@ func FindExclusionRegionsFromAnalysis(result *AnalysisResult, diffThreshold uint
 
 	fps := result.FPS
 	if fps <= 0 {
-		return nil, fmt.Errorf("FPS 无效: %f", fps)
+		return nil, fmt.Errorf("invalid FPS: %f", fps)
 	}
 
-	// 排除所需的最小帧数
+	// Minimum number of frames required for exclusion
 	minFrames := int(minDurationSeconds * fps)
 
 	var regions []ExclusionRegion
@@ -62,7 +62,7 @@ func FindExclusionRegionsFromAnalysis(result *AnalysisResult, diffThreshold uint
 			}
 			consecutiveCount++
 		} else {
-			// 连续区域结束
+			// End of consecutive region
 			if startFrame != -1 && consecutiveCount >= minFrames {
 				startTime := float64(startFrame) / fps
 				endTime := float64(startFrame+consecutiveCount) / fps
@@ -76,7 +76,7 @@ func FindExclusionRegionsFromAnalysis(result *AnalysisResult, diffThreshold uint
 		}
 	}
 
-	// 处理排除区域延伸到末尾的情况
+	// Handle case where exclusion region extends to the end
 	if startFrame != -1 && consecutiveCount >= minFrames {
 		startTime := float64(startFrame) / fps
 		endTime := float64(startFrame+consecutiveCount) / fps
@@ -89,15 +89,15 @@ func FindExclusionRegionsFromAnalysis(result *AnalysisResult, diffThreshold uint
 	return regions, nil
 }
 
-// FindExclusionRegionsFromTimeline 从时间线中查找排除区域
-// 速度为 0.0 或 9999.0 的片段被视为排除区域
+// FindExclusionRegionsFromTimeline finds exclusion regions from timeline
+// Segments with speed 0.0 or 9999.0 are considered exclusion regions
 func FindExclusionRegionsFromTimeline(timeline *Timeline) ([]ExclusionRegion, error) {
 	if timeline == nil {
-		return nil, fmt.Errorf("时间线为空")
+		return nil, fmt.Errorf("timeline is nil")
 	}
 
 	if err := validateTimeline(timeline); err != nil {
-		return nil, fmt.Errorf("时间线无效: %w", err)
+		return nil, fmt.Errorf("invalid timeline: %w", err)
 	}
 
 	var regions []ExclusionRegion
@@ -115,13 +115,13 @@ func FindExclusionRegionsFromTimeline(timeline *Timeline) ([]ExclusionRegion, er
 	return regions, nil
 }
 
-// FindOverlappingRegions 查找两组排除区域的重叠部分
+// FindOverlappingRegions finds overlapping parts of two sets of exclusion regions
 func FindOverlappingRegions(regions1, regions2 []ExclusionRegion) []ExclusionRegion {
 	var overlapping []ExclusionRegion
 
 	for _, r1 := range regions1 {
 		for _, r2 := range regions2 {
-			// 检查是否重叠
+			// Check if overlapping
 			overlapStart := max(r1.Start, r2.Start)
 			overlapEnd := min(r1.End, r2.End)
 
@@ -134,17 +134,17 @@ func FindOverlappingRegions(regions1, regions2 []ExclusionRegion) []ExclusionReg
 		}
 	}
 
-	// 合并重叠区域
+	// Merge overlapping regions
 	return mergeOverlappingRegions(overlapping)
 }
 
-// mergeOverlappingRegions 合并重叠或相邻的区域
+// mergeOverlappingRegions merges overlapping or adjacent regions
 func mergeOverlappingRegions(regions []ExclusionRegion) []ExclusionRegion {
 	if len(regions) <= 1 {
 		return regions
 	}
 
-	// 按开始时间排序
+	// Sort by start time
 	for i := 0; i < len(regions)-1; i++ {
 		for j := i + 1; j < len(regions); j++ {
 			if regions[j].Start < regions[i].Start {
@@ -158,10 +158,10 @@ func mergeOverlappingRegions(regions []ExclusionRegion) []ExclusionRegion {
 
 	for i := 1; i < len(regions); i++ {
 		if regions[i].Start <= current.End {
-			// 重叠或相邻，扩展当前区域
+			// Overlapping or adjacent, extend current region
 			current.End = max(current.End, regions[i].End)
 		} else {
-			// 无重叠，保存当前区域并开始新区域
+			// No overlap, save current region and start new region
 			merged = append(merged, current)
 			current = regions[i]
 		}
@@ -171,29 +171,29 @@ func mergeOverlappingRegions(regions []ExclusionRegion) []ExclusionRegion {
 	return merged
 }
 
-// ApplyExclusionToTimeline 将排除区域应用到时间线
-// 被排除的部分速度设为 0.0
+// ApplyExclusionToTimeline applies exclusion regions to timeline
+// Excluded parts have speed set to 0.0
 func ApplyExclusionToTimeline(timeline *Timeline, exclusions []ExclusionRegion) (*Timeline, error) {
 	if timeline == nil {
-		return nil, fmt.Errorf("时间线为空")
+		return nil, fmt.Errorf("timeline is nil")
 	}
 
 	if err := validateTimeline(timeline); err != nil {
-		return nil, fmt.Errorf("时间线无效: %w", err)
+		return nil, fmt.Errorf("invalid timeline: %w", err)
 	}
 
 	if len(exclusions) == 0 {
-		// 无排除区域，返回原时间线副本
+		// No exclusion regions, return copy of original timeline
 		newTimeline := NewTimeline(timeline.Source)
 		for _, chunk := range timeline.Chunks {
 			if err := newTimeline.AddChunk(chunk.Start(), chunk.End(), chunk.Speed()); err != nil {
-				return nil, fmt.Errorf("复制片段时失败: %w", err)
+				return nil, fmt.Errorf("failed to copy chunk: %w", err)
 			}
 		}
 		return newTimeline, nil
 	}
 
-	// 合并并排序排除区域
+	// Merge and sort exclusion regions
 	exclusions = mergeOverlappingRegions(exclusions)
 
 	newTimeline := NewTimeline(timeline.Source)
@@ -203,7 +203,7 @@ func ApplyExclusionToTimeline(timeline *Timeline, exclusions []ExclusionRegion) 
 		chunkEnd := chunk.End()
 		chunkSpeed := chunk.Speed()
 
-		// 查找与此片段重叠的所有排除区域
+		// Find all exclusion regions overlapping with this chunk
 		var overlappingExclusions []ExclusionRegion
 		for _, excl := range exclusions {
 			if excl.Start < chunkEnd && excl.End > chunkStart {
@@ -212,40 +212,40 @@ func ApplyExclusionToTimeline(timeline *Timeline, exclusions []ExclusionRegion) 
 		}
 
 		if len(overlappingExclusions) == 0 {
-			// 无重叠排除区域，保留原片段
+			// No overlapping exclusion regions, keep original chunk
 			if err := newTimeline.AddChunk(chunkStart, chunkEnd, chunkSpeed); err != nil {
-				return nil, fmt.Errorf("添加片段时失败: %w", err)
+				return nil, fmt.Errorf("failed to add chunk: %w", err)
 			}
 			continue
 		}
 
-		// 根据排除区域拆分片段
+		// Split chunk based on exclusion regions
 		currentPos := chunkStart
 		for _, excl := range overlappingExclusions {
 			exclStart := max(excl.Start, chunkStart)
 			exclEnd := min(excl.End, chunkEnd)
 
-			// 添加排除区域之前的部分
+			// Add part before exclusion region
 			if currentPos < exclStart {
 				if err := newTimeline.AddChunk(currentPos, exclStart, chunkSpeed); err != nil {
-					return nil, fmt.Errorf("添加排除前片段时失败: %w", err)
+					return nil, fmt.Errorf("failed to add pre-exclusion chunk: %w", err)
 				}
 			}
 
-			// 添加排除部分，速度设为 0.0
+			// Add exclusion part with speed set to 0.0
 			if exclStart < exclEnd {
 				if err := newTimeline.AddChunk(exclStart, exclEnd, ExcludedSpeedMarker); err != nil {
-					return nil, fmt.Errorf("添加排除片段时失败: %w", err)
+					return nil, fmt.Errorf("failed to add exclusion chunk: %w", err)
 				}
 			}
 
 			currentPos = exclEnd
 		}
 
-		// 添加所有排除区域之后的剩余部分
+		// Add remaining part after all exclusion regions
 		if currentPos < chunkEnd {
 			if err := newTimeline.AddChunk(currentPos, chunkEnd, chunkSpeed); err != nil {
-				return nil, fmt.Errorf("添加排除后片段时失败: %w", err)
+				return nil, fmt.Errorf("failed to add post-exclusion chunk: %w", err)
 			}
 		}
 	}
@@ -253,10 +253,10 @@ func ApplyExclusionToTimeline(timeline *Timeline, exclusions []ExclusionRegion) 
 	return newTimeline, nil
 }
 
-// MergeExclusionsAndExport 处理分析结果和时间线，找出重叠的排除区域并导出
-// diffThreshold: 差异阈值
-// minDurationSeconds: 最小排除时长（0 表示使用默认值 20 秒）
-// baseFilename: 输出文件基础名（会追加时间戳）
+// MergeExclusionsAndExport processes analysis results and timeline, finds overlapping exclusion regions and exports
+// diffThreshold: Difference threshold
+// minDurationSeconds: Minimum exclusion duration (0 means use default value of 20 seconds)
+// baseFilename: Output file base name (timestamp will be appended)
 func MergeExclusionsAndExport(
 	analysisResult *AnalysisResult,
 	timeline *Timeline,
@@ -264,57 +264,57 @@ func MergeExclusionsAndExport(
 	minDurationSeconds float64,
 	baseFilename string,
 ) (string, error) {
-	// 验证输入
+	// Validate inputs
 	if analysisResult == nil {
-		return "", fmt.Errorf("分析结果为空")
+		return "", fmt.Errorf("analysis result is nil")
 	}
 	if timeline == nil {
-		return "", fmt.Errorf("时间线为空")
+		return "", fmt.Errorf("timeline is nil")
 	}
 
-	// 未指定时长则使用默认值
+	// Use default value if duration not specified
 	if minDurationSeconds <= 0 {
 		minDurationSeconds = MinExclusionDurationSeconds
 	}
 
-	// 从分析结果查找排除区域
+	// Find exclusion regions from analysis results
 	analysisExclusions, err := FindExclusionRegionsFromAnalysis(analysisResult, diffThreshold, minDurationSeconds)
 	if err != nil {
-		return "", fmt.Errorf("查找分析结果排除区域时失败: %w", err)
+		return "", fmt.Errorf("failed to find exclusion regions from analysis: %w", err)
 	}
 
-	// 从时间线查找排除区域
+	// Find exclusion regions from timeline
 	timelineExclusions, err := FindExclusionRegionsFromTimeline(timeline)
 	if err != nil {
-		return "", fmt.Errorf("查找时间线排除区域时失败: %w", err)
+		return "", fmt.Errorf("failed to find exclusion regions from timeline: %w", err)
 	}
 
-	// 查找重叠区域
+	// Find overlapping regions
 	overlappingExclusions := FindOverlappingRegions(analysisExclusions, timelineExclusions)
 
-	// 应用排除区域到时间线
+	// Apply exclusion regions to timeline
 	newTimeline, err := ApplyExclusionToTimeline(timeline, overlappingExclusions)
 	if err != nil {
-		return "", fmt.Errorf("应用排除区域时失败: %w", err)
+		return "", fmt.Errorf("failed to apply exclusion regions: %w", err)
 	}
 
-	// 生成带时间戳的输出文件名
+	// Generate output filename with timestamp
 	outputFilename := generateOutputFilename(baseFilename)
 
-	// 写入文件
+	// Write to file
 	if err := MarshalTimelineToFile(outputFilename, newTimeline); err != nil {
-		return "", fmt.Errorf("写入时间线文件时失败: %w", err)
+		return "", fmt.Errorf("failed to write timeline file: %w", err)
 	}
 
 	return outputFilename, nil
 }
 
-// generateOutputFilename 生成带时间戳的输出文件名
+// generateOutputFilename generates output filename with timestamp
 func generateOutputFilename(baseFilename string) string {
-	// 移除扩展名
+	// Remove extension
 	ext := filepath.Ext(baseFilename)
 	baseName := strings.TrimSuffix(baseFilename, ext)
-	// 确保 .json 扩展名
+	// Ensure .json extension
 	return fmt.Sprintf("%s.json", baseName)
 }
 
